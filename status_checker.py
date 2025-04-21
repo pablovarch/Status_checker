@@ -190,7 +190,7 @@ class Status_checker:
                 offline_type = f"Error[Proxy Authentication Required-{ad_chain_url_status_code}]"
                 status_msg = 'proxy authentication required'
             elif 'domain seized' in html:
-                online_status = 'Blocked'
+                online_status = 'Offline | Ad Sniffer'
                 offline_type = f"Error[Domain Seized-{ad_chain_url_status_code}]"
                 status_msg = 'Domain Seized'
             elif 'cannot establish connection to requested target' in html or 'could not resolve host https in html' in html:

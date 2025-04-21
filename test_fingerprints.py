@@ -3,7 +3,8 @@ import random
 from fake_useragent import UserAgent
 
 FINGERPRINTJS_URL = "https://openfpcdn.io/fingerprintjs/v4"
-TEST_PAGE = "https://abrahamjuliot.github.io/creepjs/"
+# TEST_PAGE = "https://abrahamjuliot.github.io/creepjs/"
+TEST_PAGE = "https://fingerprint.com/demo/"
 
 # Lista de diferentes User-Agents
 USER_AGENTS = [
@@ -42,9 +43,10 @@ with sync_playwright() as p:
         args=[
             # f"--disable-extensions-except={constants.path_to_extension}",
             # f"--load-extension={constants.path_to_extension}",
-            f'--profile-directory={user_profile}'
+            f'--profile-directory={user_profile}',
 
-            "--start-fullscreen"
+            "--start-fullscreen",
+            "--disable-blink-features=AutomationControlled"
         ],
         device_scale_factor=1,
         is_mobile=False,
