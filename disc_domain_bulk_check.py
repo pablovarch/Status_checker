@@ -1,17 +1,12 @@
-from asyncio import timeout
-
 import log
-import constants
 import psycopg2
 import re
 import json
 import requests
 import subprocess
-import csv
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-import os
+
 from settings import db_connect
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Disc_domain_bulk_checker:
 
@@ -23,27 +18,65 @@ class Disc_domain_bulk_checker:
         self.__logger.info('init _disc_domain bulk_checker')
         self.__logger.info('getting domains')
         list_domains = self.get_all_domain_discovery()
-        # check with request
-        for idx, elem in enumerate(list_domains, start=1):
-            domain = elem["disc_domain"]
-            disc_domain_id = elem["disc_domain_id"]
-            self.__logger.info(f'[{idx}/{len(list_domains)}] scan site: {domain} -  domain_id: {disc_domain_id}')
-            url=f'https://{domain}'
-            is_online = self.is_domain_online(url)
-            ping_result = self.ping(domain)
-            traceroute_result = self.traceroute(domain)
+        self.check_all_domains(list_domains)
+
+    def process_domain(self, idx, elem, total):
+        domain = elem["disc_domain"]
+        disc_domain_id = elem["disc_domain_id"]
+        self.__logger.info(f'[{idx}/{total}] scan site: {domain} - domain_id: {disc_domain_id}')
+
+        try:
+            url = f'https://{domain}'
+
+            try:
+                is_online = self.is_domain_online(url)
+            except Exception as e:
+                self.__logger.error(f"[{domain}] Error in is_domain_online: {e}")
+                is_online = False
+
+            try:
+                ping_result = self.ping(domain)
+            except Exception as e:
+                self.__logger.error(f"[{domain}] Error in ping: {e}")
+                ping_result = False
+
+            try:
+                traceroute_result = self.traceroute(domain)
+            except Exception as e:
+                self.__logger.error(f"[{domain}] Error in traceroute: {e}")
+                traceroute_result = False
+
             result = f"request:{is_online} - ping: {ping_result} - tracer: {traceroute_result}"
             self.__logger.info(f"domain_id {disc_domain_id} ---- {result}")
-            if not is_online and not ping_result and not traceroute_result:
-                final_status = 'Offline'
-            else:
-                final_status = 'Online'
+
+            final_status = 'Offline' if not is_online and not ping_result and not traceroute_result else 'Online'
+
             dict_to_save = {
                 'disc_domain_id': disc_domain_id,
                 'online_status': final_status,
                 'status_details': 'Bulk-check'
             }
-            self.update_domain_discovery(dict_to_save)
+
+            try:
+                self.update_domain_discovery(dict_to_save)
+            except Exception as e:
+                self.__logger.error(f"[{domain}] Error updating domain discovery: {e}")
+
+        except Exception as e:
+            self.__logger.error(f"[{domain}] Unexpected error in process_domain: {e}")
+
+    def check_all_domains(self, list_domains):
+        total = len(list_domains)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(self.process_domain, idx, elem, total)
+                for idx, elem in enumerate(list_domains, start=1)
+            ]
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    self.__logger.error(f"Unhandled exception in thread: {e}")
 
 
     def is_domain_online(self, url):
@@ -102,7 +135,7 @@ class Disc_domain_bulk_checker:
             raise
         else:
             # sql_string = "select domain_id , domain from domain_attributes where domain_attributes.domain_id > 10 and domain_attributes.domain_id <30 "
-            sql_string = """select disc_domain_id , disc_domain from domain_discovery dd   order by dd.disc_domain_id limit 10"""
+            sql_string = """select * from domain_discovery dd  where online_status is null order by dd.disc_domain_id limit 5000"""
             # sql_string = """select domain_id , domain from domain_attributes da where domain ='dnoid.to'"""
             list_all_domain_discovery = []
             try:
