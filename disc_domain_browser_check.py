@@ -2,48 +2,37 @@ import log
 import csv
 import os
 import status_checker
-from bs4 import BeautifulSoup
-import re
-from settings import db_connect
-from constants import kw_parking
+from settings import db_connect, user_data_dir, proxy_dict
 import psycopg2
 from playwright.sync_api import Playwright, sync_playwright
 
-class Scraper_browser_sin_proxy:
+class Disc_domain_browser_check:
     def __init__(self):
-        self.__logger = log.Log().get_logger(name='Scraper_browser_sin_proxy')
+        self.__logger = log.Log().get_logger(name='Disc_domain_browser_check')
         self.__status_checker = status_checker.Status_checker()
 
     def main(self):
-        self.__logger.info('start scraper browser zenrows')
+        self.__logger.info('start Disc_domain_browser_check')
         self.__logger.info('getting domains')
-        list_domains = self.get_all_domain_attributes()
+        list_domains = self.get_all_domain_discovery()
 
         # open browser
-        # URL de conexión de ZenRows
-        list_to_save = []
         for idx, elem in enumerate(list_domains, start=1):
-            self.__logger.info(f'[{idx}/{len(list_domains)}] scan site: {elem["domain"]}')
-            proxy_service = 'sin_proxy'
-
+            disc_domain_id = elem['disc_domain_id']
+            disc_domain = elem['disc_domain']
+            self.__logger.info(f'[{idx}/{len(list_domains)}] scan site: {disc_domain}')
             try:
                 with sync_playwright() as p:
 
-                    proxy_dict = {
-                        'server': 'brd.superproxy.io:22225',
-                        'username': 'brd-customer-hl_f416ecd9-zone-mobile-country-us',
-                        'password': '52ggi1lw5ei1'
-                    }
-
                     pw: Playwright = p
-                    browser = pw.chromium.launch(channel='chrome', headless=False)
+                    browser = pw.chromium.launch(channel='msedge', headless=False)
 
                     context = p.chromium.launch_persistent_context(
 
-                        user_data_dir='C:/Users/pablo/AppData/Local/Google/Chrome/User Data/',
+                        user_data_dir= user_data_dir,
                         headless=False,
                         # user_agent=user_agent,
-                        channel='chrome',
+                        channel='msedge',
                         # permissions=['notifications'],
                         args=[
                             # f"--disable-extensions-except={constants.path_to_extension}",
@@ -60,29 +49,23 @@ class Scraper_browser_sin_proxy:
 
                     page = context.new_page()
 
-                    list_ad_chains_url, list_current_url = self.capture_traffic(page, elem["domain"])
-                    path_screenshot = f'screenshots/{proxy_service}/{elem["domain"]}.png'
-                    page.screenshot(path=path_screenshot)
-                    status_dict = self.__status_checker.status_checker(page, elem["domain"], list_ad_chains_url)
-                    current_url = page.url
+                    list_ad_chains_url, list_current_url = self.capture_traffic(page, disc_domain)
+                    status_dict = self.__status_checker.status_checker(page, disc_domain, list_ad_chains_url)
 
 
                     dict_to_save = {
-                        'domain': elem,
-                        'offline_type': status_dict['offline_type'],
+                        'disc_domain_id': disc_domain_id,
                         'online_status': status_dict['online_status'],
-                        'redirect_url': status_dict['redirect_url'],
-                        'status_msg': f"{status_dict['status_msg']}"
+                        'status_details': 'Browser-check'
                     }
-                    self.save_domain_status(dict_to_save, elem['domain_id'],current_url, proxy_service)
-                    self.save_csv_name(dict_to_save, 'test.csv')
+                    self.update_domain_discovery(dict_to_save)
+
                     # Cerrar el navegador
                     browser.close()
             except Exception as e:
                 self.__logger.error(f'error on main: {e}')
 
-
-    def get_all_domain_attributes(self):
+    def get_all_domain_discovery(self):
         # Try to connect to the DB
         try:
             conn = psycopg2.connect(host=db_connect['host'],
@@ -96,34 +79,35 @@ class Scraper_browser_sin_proxy:
             print('::DBConnect:: cant connect to DB Exception: {}'.format(e))
             raise
         else:
-            # sql_string = "select domain_id , domain from domain_attributes where domain_attributes.domain_id > 10 and domain_attributes.domain_id <30 "
-            sql_string = """select domain_id , domain from domain_attributes da where da."domain" = 'boxingstreams.buzz'"""
+            sql_string = """select disc_domain_id , disc_domain from domain_discovery where online_status = 'Online' and  status_details != 'Browser-check' limit 5000"""
+            # sql_string = """select disc_domain_id , disc_domain from domain_discovery where disc_domain ='boyadekorasyonustasi.xyz'"""
+            list_all_domain_discovery = []
             try:
                 # Try to execute the sql_string to save the data
                 cursor.execute(sql_string)
                 respuesta = cursor.fetchall()
                 conn.commit()
                 if respuesta:
-                    list_all_domain_attributes = []
+
                     for elem in respuesta:
                         domain_data = {
-                            'domain_id': elem[0],
-                            'domain': elem[1],
+                            'disc_domain_id': elem[0],
+                            'disc_domain': elem[1],
 
                         }
-                        list_all_domain_attributes.append(domain_data)
+                        list_all_domain_discovery.append(domain_data)
                 else:
-                    list_all_domain_attributes = []
+                    list_all_domain_discovery = []
 
             except Exception as e:
-                self.__logger.error('::Saver:: Error found trying to get_all_domain_attributes - {}'.format(e))
+                self.__logger.error('::Saver:: Error found trying to get_all_domain_discovery - {}'.format(e))
 
             finally:
                 cursor.close()
                 conn.close()
-                return list_all_domain_attributes
+                return list_all_domain_discovery
 
-    def update_domain_attributes(self, values_dict, domain_id, url):
+    def update_domain_discovery(self, values_dict):
         """
         This method try to connect to the DB and save the data
         :param values_dict: dictionary containing the  collection job information
@@ -145,25 +129,21 @@ class Scraper_browser_sin_proxy:
 
         else:
 
-            sql_string = "UPDATE public.domain_attributes SET domain_classification_id=%s, online_status=%s, " \
-                         "offline_type=%s, site_url=%s, status_msg=%s WHERE domain_id =%s;"
+            sql_string = "UPDATE public.domain_discovery SET online_status=%s ,status_details=%s WHERE disc_domain_id=%s;"
 
-            data = (values_dict['domain_classification_id'],
-                    values_dict['online_status'],
-                    values_dict['offline_type'],
-                    url,
-                    values_dict['status_msg'],
-                    domain_id
+            data = (values_dict['online_status'],
+                    values_dict['status_details'],
+                    values_dict['disc_domain_id'],
                     )
             try:
                 # Try to execute the sql_string to save the data
                 cursor.execute(sql_string, data)
                 conn.commit()
                 self.__logger.info(
-                    f"::domain_attributes:: Domain_attributes updated successfully - domain_id {domain_id} - online_status {values_dict['online_status']}")
+                    f"::domain_attributes:: Domain_discovery updated successfully - domain_id {values_dict['disc_domain_id']} - online_status {values_dict['online_status']}")
 
             except Exception as e:
-                self.__logger.error('::Saver:: Error found trying to Update Domain_attributes - {}'.format(e))
+                self.__logger.error('::Saver:: Error found trying to Update Domain_discovery - {}'.format(e))
 
             finally:
                 cursor.close()
@@ -202,44 +182,6 @@ class Scraper_browser_sin_proxy:
         except Exception as e:
             self.__logger.error(f'-- Error update domain table - {domain_id} -  error: {e}')
 
-    def get_domain_status_by_id(self, domain_id):
-        # Try to connect to the DB
-        try:
-            conn = psycopg2.connect(host=db_connect['host'],
-                                    database=db_connect['database'],
-                                    password=db_connect['password'],
-                                    user=db_connect['user'],
-                                    port=db_connect['port'])
-            cursor = conn.cursor()
-
-        except Exception as e:
-            print('::DBConnect:: cant connect to DB Exception: {}'.format(e))
-            raise
-        else:
-            sql_string = "select online_status, offline_type,status_msg from domain_attributes where domain_id = %s"
-
-            try:
-                # Try to execute the sql_string to save the data
-                cursor.execute(sql_string, (domain_id,))
-                respuesta = cursor.fetchone()
-                conn.commit()
-                if respuesta:
-                    dict_status = {
-                        'online_status': respuesta[0],
-                        'offline_type': respuesta[1],
-                        'status_msg': respuesta[2]
-                    }
-
-                else:
-                    dict_status = None
-
-            except Exception as e:
-                self.__logger.error('::Saver:: Error found trying to get_online_status_by_id - {}'.format(e))
-
-            finally:
-                cursor.close()
-                conn.close()
-                return dict_status
 
     def capture_traffic(self, page, site):
         try:
@@ -277,7 +219,7 @@ class Scraper_browser_sin_proxy:
             tries = 1
             while tries < 3:
                 try:
-                    page.goto(site_to_load, wait_until='load', timeout=50000)
+                    page.goto(site_to_load, wait_until='domcontentloaded', timeout=50000)
                     page.wait_for_selector("body", timeout=15000)
                     # page.wait_for_load_state(timeout=50000)
                     load_site = True
@@ -285,6 +227,10 @@ class Scraper_browser_sin_proxy:
                 except Exception as e:
                     self.__logger.error(f'error load page {e}')
                     tries += 1
+            if not load_site:
+                self.__logger.error("Carga fallida, forzando detención.")
+                page.goto("about:blank", timeout=5000)
+
         except Exception as e:
             self.__logger.error(f'capture_traffic - {e}')
         return list_ad_chains_url, list_current_url

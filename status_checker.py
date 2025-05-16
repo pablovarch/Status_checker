@@ -14,6 +14,19 @@ class Status_checker:
         self.__logger = log.Log().get_logger(name='status_checker')
 
     def status_checker(self, page, site, list_ad_chains_url):
+
+        if page.url == 'about:blank':
+
+            self.__logger.info(f'the domain: {site} is a parking page ')
+            status_dict = {
+                'online_status': 'Offline | Status Checker',
+                'offline_type': 'Parking Page',
+                'redirect_url': '',
+                'status_msg': ''
+            }
+            return status_dict
+
+
         try:
             current_url = page.url
             current_domain = re.findall(r'https?:\/\/([^\/]+)', current_url)[0]
@@ -47,7 +60,7 @@ class Status_checker:
             if current_domain != site:
                 redirect = True
                 redirect_url = current_url
-            if site in current_url:
+            if site in current_domain:
                 same_domain = True
 
             if redirect and not same_domain:
